@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -18,18 +19,27 @@ type BlogPost struct {
 	Category  string    `json:"category"`
 	Tags      []string  `json:"tags"`
 	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 func (p *BlogPost) New(nextId int) *BlogPost {
-	post := &BlogPost{
+	return &BlogPost{
 		Id:        nextId,
 		Title:     p.Title,
 		Content:   p.Content,
 		Tags:      p.Tags,
 		Category:  p.Category,
 		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
 	}
-	return post
+}
+
+func (p *BlogPost) Update(input BlogPost) {
+	p.Title = input.Title
+	p.Content = input.Content
+	p.Category = input.Category
+	p.Tags = input.Tags
+	p.UpdatedAt = time.Now()
 }
 
 var dataStore = struct {
@@ -49,6 +59,7 @@ func main() {
 	})
 
 	mux.HandleFunc("POST /posts", createPost)
+	mux.HandleFunc("PUT /posts/{id}", updatePost)
 
 	fmt.Println("Server running on :8080")
 	http.ListenAndServe(":8080", mux)
@@ -79,6 +90,49 @@ func createPost(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 
 	if err := json.NewEncoder(w).Encode(newPost); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+	}
+}
+
+func updatePost(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	postId, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Id should be a number", http.StatusBadRequest)
+		return
+	}
+
+	var input BlogPost
+
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		http.Error(w, "Invalid Json format", http.StatusBadRequest)
+		return
+	}
+
+	dataStore.Lock()
+	defer dataStore.Unlock()
+
+	// Dapetin data post dengan id == postId
+	var foundIndex = -1
+	for i, post := range dataStore.posts {
+		if post.Id == postId {
+			foundIndex = i
+			break
+		}
+	}
+
+	if foundIndex == -1 {
+		http.Error(w, "Post not found", http.StatusNotFound)
+		return
+	}
+
+	targetPost := &dataStore.posts[foundIndex]
+	targetPost.Update(input)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	if err := json.NewEncoder(w).Encode(targetPost); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 	}
 }
