@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"log"
 	"net/http"
 	"strconv"
 	"sync"
@@ -22,18 +23,6 @@ type BlogPost struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
-func (p *BlogPost) New(nextId int) *BlogPost {
-	return &BlogPost{
-		Id:        nextId,
-		Title:     p.Title,
-		Content:   p.Content,
-		Tags:      p.Tags,
-		Category:  p.Category,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}
-}
-
 func (p *BlogPost) Update(input BlogPost) {
 	p.Title = input.Title
 	p.Content = input.Content
@@ -43,7 +32,7 @@ func (p *BlogPost) Update(input BlogPost) {
 }
 
 var dataStore = struct {
-	sync.Mutex
+	sync.RWMutex
 	posts  []BlogPost
 	nextId int
 }{
@@ -61,6 +50,7 @@ func main() {
 	mux.HandleFunc("POST /posts", createPost)
 	mux.HandleFunc("PUT /posts/{id}", updatePost)
 	mux.HandleFunc("DELETE /posts/{id}", deletePost)
+	mux.HandleFunc("GET /posts/{id}", getPost)
 
 	fmt.Println("Server running on :8080")
 	http.ListenAndServe(":8080", mux)
@@ -80,9 +70,17 @@ func createPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dataStore.Lock()
-	newPost := input.New(dataStore.nextId)
+	newPost := BlogPost{
+		Id:        dataStore.nextId,
+		Title:     input.Title,
+		Content:   input.Content,
+		Category:  input.Category,
+		Tags:      input.Tags,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
 
-	dataStore.posts = append(dataStore.posts, *newPost)
+	dataStore.posts = append(dataStore.posts, newPost)
 	dataStore.nextId++
 
 	dataStore.Unlock()
@@ -168,12 +166,46 @@ func deletePost(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func createMessageResponse(text any) []byte {
-	response := map[string]any{"message": text}
-	jsonResponse, err := json.Marshal(response)
+func getPost(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	postId, err := strconv.Atoi(idStr)
 	if err != nil {
-		// Fallback for marshaling error
-		return []byte(`{"message": "internal server error"}`)
+		http.Error(w, "Id should be a number", http.StatusBadRequest)
+		return
 	}
-	return jsonResponse
+
+	dataStore.RLock()
+	defer dataStore.RUnlock()
+
+	// Dapetin data post dengan id == postId
+	var foundPost BlogPost
+	var found = false
+	for _, post := range dataStore.posts {
+		if post.Id == postId {
+			foundPost = post
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		http.Error(w, "Post not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(foundPost); err != nil {
+		log.Println(err)
+	}
 }
+
+// func createMessageResponse(text any) []byte {
+// 	response := map[string]any{"message": text}
+// 	jsonResponse, err := json.Marshal(response)
+// 	if err != nil {
+// 		// Fallback for marshaling error
+// 		return []byte(`{"message": "internal server error"}`)
+// 	}
+// 	return jsonResponse
+// }
