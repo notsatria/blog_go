@@ -60,6 +60,7 @@ func main() {
 
 	mux.HandleFunc("POST /posts", createPost)
 	mux.HandleFunc("PUT /posts/{id}", updatePost)
+	mux.HandleFunc("DELETE /posts/{id}", deletePost)
 
 	fmt.Println("Server running on :8080")
 	http.ListenAndServe(":8080", mux)
@@ -135,4 +136,44 @@ func updatePost(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(targetPost); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 	}
+}
+
+func deletePost(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	postId, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Id should be a number", http.StatusBadRequest)
+		return
+	}
+
+	dataStore.Lock()
+	defer dataStore.Unlock()
+
+	// Dapetin data post dengan id == postId
+	var foundIndex = -1
+	for i, post := range dataStore.posts {
+		if post.Id == postId {
+			foundIndex = i
+			break
+		}
+	}
+
+	if foundIndex == -1 {
+		http.Error(w, "Post not found", http.StatusNotFound)
+		return
+	}
+
+	dataStore.posts = append(dataStore.posts[:foundIndex], dataStore.posts[foundIndex+1:]...)
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func createMessageResponse(text any) []byte {
+	response := map[string]any{"message": text}
+	jsonResponse, err := json.Marshal(response)
+	if err != nil {
+		// Fallback for marshaling error
+		return []byte(`{"message": "internal server error"}`)
+	}
+	return jsonResponse
 }
