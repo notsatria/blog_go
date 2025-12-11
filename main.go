@@ -229,16 +229,34 @@ func getPost(w http.ResponseWriter, r *http.Request) {
 }
 
 func getAllPost(w http.ResponseWriter, r *http.Request) {
-	query := `
+	term := r.URL.Query().Get("term")
+
+	var query string
+	var args []interface{}
+
+	if term != "" {
+		query = `
 		SELECT id, title, content, category, tags, created_at, updated_at 
+		FROM posts
+		WHERE title ILIKE $1
+		OR content ILIKE $1 
+		OR category ILIKE $1`
+
+		searchPattern := "%" + term + "%"
+
+		args = append(args, searchPattern)
+	} else {
+		query = `SELECT id, title, content, category, tags, created_at, updated_at 
 		FROM posts`
+	}
 
 	var err error
-
-	rows, err := db.Query(query)
+	rows, err := db.Query(query, args...)
 
 	if err != nil {
-		log.Println("Error scanning post:", err)
+		log.Println("Error executing query:", err)
+		// PERBAIKAN: Beri tahu client ada error 500
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
