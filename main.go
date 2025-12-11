@@ -146,13 +146,13 @@ func updatePost(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if err != nil {
+		log.Println("Error on update post:", err)
 		if err == sql.ErrNoRows {
 			// JIKA ID TIDAK DITEMUKAN
 			http.Error(w, "Post not found", http.StatusNotFound) // 404
 			return
 		}
 
-		log.Println("Error on update post:", err)
 		http.Error(w, "Error on updating a post", http.StatusInternalServerError)
 		return
 	}
@@ -173,24 +173,25 @@ func deletePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dataStore.Lock()
-	defer dataStore.Unlock()
+	query := `DELETE FROM posts WHERE id = $1`
 
-	// Dapetin data post dengan id == postId
-	var foundIndex = -1
-	for i, post := range dataStore.posts {
-		if post.Id == postId {
-			foundIndex = i
-			break
-		}
-	}
+    res, err := db.Exec(query, postId)
+    if err != nil {
+        log.Println("Error on delete post:", err)
+        http.Error(w, "Error on deleting a post", http.StatusInternalServerError)
+        return
+    }
 
-	if foundIndex == -1 {
-		http.Error(w, "Post not found", http.StatusNotFound)
-		return
-	}
+    count, err := res.RowsAffected()
+    if err != nil {
+        http.Error(w, "Error checking rows affected", http.StatusInternalServerError)
+        return
+    }
 
-	dataStore.posts = append(dataStore.posts[:foundIndex], dataStore.posts[foundIndex+1:]...)
+    if count == 0 {
+        http.Error(w, "Post not found", http.StatusNotFound)
+        return
+    }
 
 	w.WriteHeader(http.StatusNoContent)
 }
