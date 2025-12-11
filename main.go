@@ -8,7 +8,6 @@ import (
 	"log"
 	"net/http"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/lib/pq"
@@ -35,15 +34,6 @@ func (p *BlogPost) Update(input BlogPost) {
 	p.Category = input.Category
 	p.Tags = input.Tags
 	p.UpdatedAt = time.Now()
-}
-
-var dataStore = struct {
-	sync.RWMutex
-	posts  []BlogPost
-	nextId int
-}{
-	posts:  make([]BlogPost, 0),
-	nextId: 1,
 }
 
 func main() {
@@ -221,9 +211,12 @@ func getPost(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			log.Printf("No post with id %d found", postId)
+			// Beri tahu client bahwa data tidak ada (404)
+			http.Error(w, "Post not found", http.StatusNotFound)
 		} else {
+			// Beri tahu client ada error server (500)
 			log.Println("Error scanning post:", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		}
 		return
 	}
@@ -236,12 +229,41 @@ func getPost(w http.ResponseWriter, r *http.Request) {
 }
 
 func getAllPost(w http.ResponseWriter, r *http.Request) {
-	dataStore.RLock()
-	defer dataStore.RUnlock()
+	query := `
+		SELECT id, title, content, category, tags, created_at, updated_at 
+		FROM posts`
+
+	var err error
+
+	rows, err := db.Query(query)
+
+	if err != nil {
+		log.Println("Error scanning post:", err)
+		return
+	}
+
+	defer rows.Close()
+
+	var posts []BlogPost = make([]BlogPost, 0)
+	for rows.Next() {
+		var post BlogPost
+		if err = rows.Scan(&post.Id, &post.Title, &post.Content, &post.Category, pq.Array(&post.Tags), &post.CreatedAt, &post.UpdatedAt); err != nil {
+			log.Println("Error on get posts: ", err)
+			break
+		}
+		posts = append(posts, post)
+	}
+
+	// Cek error setelah loop selesai
+	if err = rows.Err(); err != nil {
+		log.Println("Error iterating rows:", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(dataStore.posts); err != nil {
+	if err = json.NewEncoder(w).Encode(posts); err != nil {
 		log.Println(err)
 	}
 }
