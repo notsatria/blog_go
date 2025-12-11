@@ -175,23 +175,23 @@ func deletePost(w http.ResponseWriter, r *http.Request) {
 
 	query := `DELETE FROM posts WHERE id = $1`
 
-    res, err := db.Exec(query, postId)
-    if err != nil {
-        log.Println("Error on delete post:", err)
-        http.Error(w, "Error on deleting a post", http.StatusInternalServerError)
-        return
-    }
+	res, err := db.Exec(query, postId)
+	if err != nil {
+		log.Println("Error on delete post:", err)
+		http.Error(w, "Error on deleting a post", http.StatusInternalServerError)
+		return
+	}
 
-    count, err := res.RowsAffected()
-    if err != nil {
-        http.Error(w, "Error checking rows affected", http.StatusInternalServerError)
-        return
-    }
+	count, err := res.RowsAffected()
+	if err != nil {
+		http.Error(w, "Error checking rows affected", http.StatusInternalServerError)
+		return
+	}
 
-    if count == 0 {
-        http.Error(w, "Post not found", http.StatusNotFound)
-        return
-    }
+	if count == 0 {
+		http.Error(w, "Post not found", http.StatusNotFound)
+		return
+	}
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -204,28 +204,33 @@ func getPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dataStore.RLock()
-	defer dataStore.RUnlock()
+	query := `
+		SELECT id, title, content, category, tags, created_at, updated_at 
+		FROM posts WHERE id = $1`
 
-	// Dapetin data post dengan id == postId
-	var foundPost BlogPost
-	var found = false
-	for _, post := range dataStore.posts {
-		if post.Id == postId {
-			foundPost = post
-			found = true
-			break
+	var post BlogPost
+	err = db.QueryRow(query, postId).Scan(
+		&post.Id,
+		&post.Title,
+		&post.Content,
+		&post.Category,
+		pq.Array(&post.Tags),
+		&post.CreatedAt,
+		&post.UpdatedAt,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			log.Printf("No post with id %d found", postId)
+		} else {
+			log.Println("Error scanning post:", err)
 		}
-	}
-
-	if !found {
-		http.Error(w, "Post not found", http.StatusNotFound)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(foundPost); err != nil {
+	if err := json.NewEncoder(w).Encode(post); err != nil {
 		log.Println(err)
 	}
 }
@@ -239,32 +244,4 @@ func getAllPost(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(dataStore.posts); err != nil {
 		log.Println(err)
 	}
-}
-
-func getPostAndReturnValue(id int) (BlogPost, error) {
-	query := `
-		SELECT id, title, content, category, tags, created_at, updated_at 
-		FROM posts WHERE id = $1`
-
-	var post BlogPost
-	err := db.QueryRow(query, id).Scan(
-		&post.Id,
-		&post.Title,
-		&post.Content,
-		&post.Category,
-		pq.Array(&post.Tags),
-		&post.CreatedAt,
-		&post.UpdatedAt,
-	)
-
-	if err != nil {
-		if err == sql.ErrNoRows {
-			log.Printf("No post with id %d found", id)
-		} else {
-			log.Println("Error scanning post:", err)
-		}
-		return BlogPost{}, err
-	}
-
-	return post, nil
 }
