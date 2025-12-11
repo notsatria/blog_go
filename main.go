@@ -51,6 +51,7 @@ func main() {
 	mux.HandleFunc("PUT /posts/{id}", updatePost)
 	mux.HandleFunc("DELETE /posts/{id}", deletePost)
 	mux.HandleFunc("GET /posts/{id}", getPost)
+	mux.HandleFunc("GET /posts", getAllPost)
 
 	fmt.Println("Server running on :8080")
 	http.ListenAndServe(":8080", mux)
@@ -200,12 +201,13 @@ func getPost(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// func createMessageResponse(text any) []byte {
-// 	response := map[string]any{"message": text}
-// 	jsonResponse, err := json.Marshal(response)
-// 	if err != nil {
-// 		// Fallback for marshaling error
-// 		return []byte(`{"message": "internal server error"}`)
-// 	}
-// 	return jsonResponse
-// }
+func getAllPost(w http.ResponseWriter, r *http.Request) {
+	dataStore.RLock()
+	defer dataStore.RUnlock()
+	
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(dataStore.posts); err != nil {
+		log.Println(err)
+	}
+}
