@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -9,9 +10,14 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/lib/pq"
+	_ "github.com/lib/pq"
 )
 
 var tmpl = template.Must(template.ParseFiles("index.html"))
+
+var db *sql.DB
 
 type BlogPost struct {
 	Id        int       `json:"id"`
@@ -41,6 +47,22 @@ var dataStore = struct {
 }
 
 func main() {
+	var err error
+
+	connStr := "user=postgres password=postgresdb dbname=blog_go sslmode=disable"
+
+	db, err = sql.Open("postgres", connStr)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Ping to DB
+	if err = db.Ping(); err != nil {
+		log.Fatal("Failed to connect to DB:", err)
+	}
+
+	fmt.Println("Connected to DB!")
+
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
@@ -60,7 +82,8 @@ func main() {
 func createPost(w http.ResponseWriter, r *http.Request) {
 	var input BlogPost
 
-	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+	var err error
+	if err = json.NewDecoder(r.Body).Decode(&input); err != nil {
 		http.Error(w, "Invalid Json format", http.StatusBadRequest)
 		return
 	}
@@ -70,21 +93,24 @@ func createPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dataStore.Lock()
-	newPost := BlogPost{
-		Id:        dataStore.nextId,
-		Title:     input.Title,
-		Content:   input.Content,
-		Category:  input.Category,
-		Tags:      input.Tags,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+	query := `INSERT INTO posts (title, content, category, tags)
+	VALUES($1, $2, $3, $4)
+	RETURNING id, title, content, category, tags, created_at, updated_at`
+
+	var newPost BlogPost
+	err = db.QueryRow(
+		query,
+		input.Title,
+		input.Content,
+		input.Category,
+		pq.Array(input.Tags),
+	).Scan(&newPost.Id, &newPost.Title, &newPost.Content, &newPost.Category, pq.Array(&newPost.Tags), &newPost.CreatedAt, &newPost.UpdatedAt)
+
+	if err != nil {
+		log.Println(err)
+		http.Error(w, "Error on creating a new post", http.StatusInternalServerError)
+		return
 	}
-
-	dataStore.posts = append(dataStore.posts, newPost)
-	dataStore.nextId++
-
-	dataStore.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -204,10 +230,38 @@ func getPost(w http.ResponseWriter, r *http.Request) {
 func getAllPost(w http.ResponseWriter, r *http.Request) {
 	dataStore.RLock()
 	defer dataStore.RUnlock()
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(dataStore.posts); err != nil {
 		log.Println(err)
 	}
+}
+
+func getPostAndReturnValue(id int) (BlogPost, error) {
+	query := `
+		SELECT id, title, content, category, tags, created_at, updated_at 
+		FROM posts WHERE id = $1`
+
+	var post BlogPost
+	err := db.QueryRow(query, id).Scan(
+		&post.Id,
+		&post.Title,
+		&post.Content,
+		&post.Category,
+		pq.Array(&post.Tags),
+		&post.CreatedAt,
+		&post.UpdatedAt,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			log.Printf("No post with id %d found", id)
+		} else {
+			log.Println("Error scanning post:", err)
+		}
+		return BlogPost{}, err
+	}
+
+	return post, nil
 }
