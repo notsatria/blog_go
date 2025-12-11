@@ -95,16 +95,16 @@ func createPost(w http.ResponseWriter, r *http.Request) {
 
 	query := `INSERT INTO posts (title, content, category, tags)
 	VALUES($1, $2, $3, $4)
-	RETURNING id, title, content, category, tags, created_at, updated_at`
+	RETURNING id, created_at, updated_at`
 
-	var newPost BlogPost
+	newPost := input
 	err = db.QueryRow(
 		query,
 		input.Title,
 		input.Content,
 		input.Category,
 		pq.Array(input.Tags),
-	).Scan(&newPost.Id, &newPost.Title, &newPost.Content, &newPost.Category, pq.Array(&newPost.Tags), &newPost.CreatedAt, &newPost.UpdatedAt)
+	).Scan(&newPost.Id, &newPost.CreatedAt, &newPost.UpdatedAt)
 
 	if err != nil {
 		log.Println(err)
@@ -116,7 +116,7 @@ func createPost(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 
 	if err := json.NewEncoder(w).Encode(newPost); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		log.Println("Failed to encode post:", err)
 	}
 }
 
@@ -135,30 +135,32 @@ func updatePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dataStore.Lock()
-	defer dataStore.Unlock()
+	updatedPost := input
+	query := `UPDATE posts 
+	SET title = $1, content = $2, category = $3, tags = $4, updated_at = $5
+	WHERE id = $6
+	RETURNING id, created_at, updated_at`
 
-	// Dapetin data post dengan id == postId
-	var foundIndex = -1
-	for i, post := range dataStore.posts {
-		if post.Id == postId {
-			foundIndex = i
-			break
+	err = db.QueryRow(query, input.Title, input.Content, input.Category, pq.Array(input.Tags), time.Now(), postId).Scan(
+		&updatedPost.Id, &updatedPost.CreatedAt, &updatedPost.UpdatedAt,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			// JIKA ID TIDAK DITEMUKAN
+			http.Error(w, "Post not found", http.StatusNotFound) // 404
+			return
 		}
-	}
 
-	if foundIndex == -1 {
-		http.Error(w, "Post not found", http.StatusNotFound)
+		log.Println("Error on update post:", err)
+		http.Error(w, "Error on updating a post", http.StatusInternalServerError)
 		return
 	}
-
-	targetPost := &dataStore.posts[foundIndex]
-	targetPost.Update(input)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 
-	if err := json.NewEncoder(w).Encode(targetPost); err != nil {
+	if err := json.NewEncoder(w).Encode(updatedPost); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 	}
 }
