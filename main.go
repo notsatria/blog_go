@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -37,14 +38,34 @@ func (p *BlogPost) Update(input BlogPost) {
 }
 
 func main() {
+	dbUser := os.Getenv("DB_USER")
+	dbPass := os.Getenv("DB_PASS")
+	dbHost := os.Getenv("DB_HOST")
+	dbName := os.Getenv("DB_NAME")
+
+	if dbUser == "" {
+		dbUser = "postgres"
+	}
+	if dbPass == "" {
+		dbPass = "postgresdb"
+	}
+	if dbHost == "" {
+		dbHost = "localhost"
+	}
+	if dbName == "" {
+		dbName = "blog_go"
+	}
+
 	var err error
-
-	connStr := "user=postgres password=postgresdb dbname=blog_go sslmode=disable"
-
+	connStr := fmt.Sprintf("postgres://%s:%s@%s/%s?sslmode=disable", dbUser, dbPass, dbHost, dbName)
 	db, err = sql.Open("postgres", connStr)
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	db.SetMaxOpenConns(10)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(30 * time.Minute)
 
 	// Ping to DB
 	if err = db.Ping(); err != nil {

@@ -1,16 +1,29 @@
-# STAGE 1: build (Go ada di sini)
+# Stage 1: Build (Kita pakai image Golang resmi untuk compile)
 FROM golang:1.25.4 AS builder
 
 WORKDIR /app
+
+# Copy file dependency dulu biar cache-nya awet
 COPY go.mod go.sum ./
 RUN go mod download
 
+# Copy semua codingan
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o app
 
-# STAGE 2: runtime (tanpa Go)
+# Build aplikasi jadi binary file namanya "main"
+RUN go build -o main .
+
+# Stage 2: Run (Kita pakai image Alpine yang kecil banget untuk jalanin apps)
 FROM alpine:latest
-WORKDIR /app
-COPY --from=builder /app/app .
+
+WORKDIR /root/
+
+# Copy hasil build dari Stage 1
+COPY --from=builder /app/main .
+COPY --from=builder /app/index.html . 
+
+# Expose port 8080
 EXPOSE 8080
-CMD ["./app"]
+
+# Jalankan aplikasinya
+CMD ["./main"]
