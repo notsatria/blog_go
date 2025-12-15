@@ -1,7 +1,7 @@
 # Stage 1: Build (Kita pakai image Golang resmi untuk compile)
 FROM golang:1.25.4 AS builder
 
-WORKDIR /app
+WORKDIR /opt/app
 
 # Copy file dependency dulu biar cache-nya awet
 COPY go.mod go.sum ./
@@ -19,8 +19,8 @@ FROM alpine:latest
 WORKDIR /root/
 
 # Copy hasil build dari Stage 1
-COPY --from=builder /app/main .
-COPY --from=builder /app/index.html . 
+COPY --from=builder opt/app/main .
+COPY --from=builder opt/app/index.html . 
 
 # Expose port 8080
 EXPOSE 8080
